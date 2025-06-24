@@ -11,7 +11,13 @@ KEYS = ['UNIT_PERNO', 'SAIL_PERNO']
 EXCLUDE_COLUMNS = ['YYYYMM']
 
 st.set_page_config(page_title="CSV Comparator", layout="wide")
-st.title("📊 CSV Comparator")
+st.title("📋 Compare Two CSVs Easily")
+
+st.markdown("Upload your **Master** and **Slave** CSV files to see what's changed or who's new.")
+
+# --- File Upload ---
+master_file = st.file_uploader("📤 Upload Master CSV", type="csv", key="master")
+slave_file = st.file_uploader("📤 Upload Latest CSV (to compare)", type="csv", key="slave")
 
 def read_csv_file(uploaded_file):
     decoded = uploaded_file.read().decode('utf-8')
@@ -19,7 +25,7 @@ def read_csv_file(uploaded_file):
     rows = list(reader)
     key_col = next((k for k in KEYS if k in rows[0]), None)
     if not key_col:
-        st.error(f"No valid key column found in {uploaded_file.name}")
+        st.error(f"❌ No valid key column found in {uploaded_file.name}")
         return {}, None
     return {row[key_col].strip(): row for row in rows if row[key_col].strip()}, key_col
 
@@ -38,7 +44,7 @@ def compare_files(master_data, slave_data):
 
         if not m_row:
             sub_rows = [
-                {'Field': col, 'Old': "--- NOT IN MASTER ---", 'New': str(s_row[col])}
+                {'Field': col, 'Old': "--- Not in Master ---", 'New': str(s_row[col])}
                 for col in s_row if col not in EXCLUDE_COLUMNS and s_row.get(col)
             ]
             if sub_rows:
@@ -63,7 +69,7 @@ def generate_pdf(groups, category):
     styles = getSampleStyleSheet()
     wrap = ParagraphStyle(name='Wrapped', parent=styles['BodyText'], alignment=0)
 
-    title = "Differences Report" if category == 'diff' else "New Joinees Report"
+    title = "What's Changed" if category == 'diff' else "New Joinees"
     elements.append(Paragraph(title, styles['Title']))
 
     for group in groups:
@@ -99,10 +105,7 @@ def flatten_for_excel(grouped):
             })
     return pd.DataFrame(flat)
 
-# --- Upload UI ---
-master_file = st.file_uploader("Upload Master CSV", type="csv", key="master")
-slave_file = st.file_uploader("Upload Slave CSV", type="csv", key="slave")
-
+# --- Process CSVs ---
 if master_file and slave_file:
     master_data, _ = read_csv_file(master_file)
     slave_data, _ = read_csv_file(slave_file)
@@ -110,26 +113,51 @@ if master_file and slave_file:
     if master_data and slave_data:
         grouped_diff, grouped_new = compare_files(master_data, slave_data)
 
-        st.success(f"Comparison complete: {len(grouped_diff)} changed, {len(grouped_new)} new joinees")
+        st.success(f"✅ Done! Found {len(grouped_diff)} changed records and {len(grouped_new)} new joiners.")
 
-        tabs = st.tabs(["🔍 Grouped Differences", "🆕 Grouped New Joinees"])
+        tabs = st.tabs(["🔍 See What Changed", "🆕 Who's New?"])
 
+        
         with tabs[0]:
-            for group in grouped_diff:
-                with st.expander(f"Employee: {group['Employee']}"):
-                    df = pd.DataFrame(group['Changes'])
-                    st.table(df)
+            st.subheader("⬇️ Download Reports")
+            pdf_diff = generate_pdf(grouped_diff or [{'Employee': 'N/A', 'Changes': []}], 'diff')
+            st.download_button("📄 Download PDF (Changes)", data=pdf_diff, file_name="differences_report.pdf", mime="application/pdf", help="Download all changes as PDF")
 
+            excel_diff_df = flatten_for_excel(grouped_diff or [])
+            excel_diff_buffer = io.BytesIO()
+            excel_diff_df.to_excel(excel_diff_buffer, index=False, engine='openpyxl')
+            excel_diff_buffer.seek(0)
+            st.download_button("📊 Download Excel (Changes)", data=excel_diff_buffer, file_name="differences_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", help="Download all changes as Excel")
+
+            st.divider()
+            st.subheader("👀 Detailed Changes")
             if grouped_diff:
-                st.download_button("⬇️ Download Excel", flatten_for_excel(grouped_diff).to_excel(index=False, engine='openpyxl'), file_name="differences_report.xlsx")
-                st.download_button("⬇️ Download PDF", generate_pdf(grouped_diff, 'diff'), file_name="differences_report.pdf")
+                for group in grouped_diff:
+                    with st.expander(f"Employee: {group['Employee']}"):
+                        df = pd.DataFrame(group['Changes'])
+                        st.table(df)
+            else:
+                st.info("No differences found between the files.")
 
+        
         with tabs[1]:
-            for group in grouped_new:
-                with st.expander(f"Employee: {group['Employee']}"):
-                    df = pd.DataFrame(group['Changes'])
-                    st.table(df)
+            st.subheader("⬇️ Download Reports")
+            pdf_new = generate_pdf(grouped_new or [{'Employee': 'N/A', 'Changes': []}], 'new')
+            st.download_button("📄 Download PDF (New Joiners)", data=pdf_new, file_name="new_joinees_report.pdf", mime="application/pdf", help="Download new joiners as PDF")
 
+            excel_new_df = flatten_for_excel(grouped_new or [])
+            excel_new_buffer = io.BytesIO()
+            excel_new_df.to_excel(excel_new_buffer, index=False, engine='openpyxl')
+            excel_new_buffer.seek(0)
+            st.download_button("📊 Download Excel (New Joiners)", data=excel_new_buffer, file_name="new_joinees_report.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", help="Download new joiners as Excel")
+
+            st.divider()
+            st.subheader("👀 Meet the New Joiners")
             if grouped_new:
-                st.download_button("⬇️ Download Excel", flatten_for_excel(grouped_new).to_excel(index=False, engine='openpyxl'), file_name="new_joinees_report.xlsx")
-                st.download_button("⬇️ Download PDF", generate_pdf(grouped_new, 'new'), file_name="new_joinees_report.pdf")
+                for group in grouped_new:
+                    with st.expander(f"Employee: {group['Employee']}"):
+                        df = pd.DataFrame(group['Changes'])
+                        st.table(df)
+            else:
+                st.info("No new joiners found in the latest file.")
+
